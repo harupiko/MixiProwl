@@ -1,0 +1,270 @@
+#!/usr/bin/ruby
+#
+# MixiProwl 0.1
+# by Haruhiko Soma
+#
+# source originally from: TwiProwl
+# TwiProwl - Twitter Notification Script with Prowl.
+# Version: 0.3 by Takuo Kitame.
+#
+# You can redistribute it and/or modify it under the same term as Ruby.
+#
+require 'rubygems'
+require 'net/https'
+require 'json'
+require 'uri'
+require 'yaml'
+require 'logger'
+require 'wsse'
+require 'rexml/document'
+require 'mixi.rb'
+require 'date'
+
+class MixiProwl
+  
+  LOGFILE = "mixiprowl.log"
+  PROWL_API_ADD = "https://prowl.weks.net/publicapi/add"
+ 
+  def initialize(global, config)
+    @@conf = global
+    _prowl_conf_validate(@@conf['Prowl'])
+    @config = config
+    @config['Application'] = "Mixi" unless @config.has_key?('Application')
+    @config['UpdatesCount'] = 10 unless @config.has_key?('UpdatesCount')
+    @config['UpdatesInterval'] = 5 unless @config.has_key?('UpdatesInterval')
+    @config['UpdatesPriority'] = 0 unless @config.has_key?('UpdatesPriority')
+    @config['TracksCount'] = 10 unless @config.has_key?('TracksCount')
+    @config['TracksInterval'] = 10 unless @config.has_key?('TracksInterval')
+    @config['TracksPriority'] = 0 unless @config.has_key?('TracksPriority')
+  end  
+
+  @@conf = Hash.new
+  @@logger = nil
+  @@prowl_conf = nil
+
+  private
+  def _prowl_conf_validate(val)
+    return if @@prowl_conf
+    @@prowl_conf = val
+    unless @@prowl_conf.kind_of?(Hash)
+      STDERR.printf "Configuration Error: Prowl section must be Hash.\n"
+      exit 1
+    end
+    unless @@prowl_conf.has_key?('APIKey')
+      STDERR.printf "Configuration Error: APIKey must be given.\n"
+      exit 1
+    end
+    _init_logger()
+  end
+
+  def _init_logger
+    if @@conf['LogDir']
+      logdir = @@conf['LogDir']
+      Dir.mkdir(logdir) unless File.exist?(logdir)
+      file = File.join(logdir, LOGFILE)
+      STDOUT.puts "All logs will be written into #{file}."
+      STDOUT.flush
+      @@logger = Logger.new(file, 'daily')
+      @@logger.level = @@conf['Debug'] ? Logger::DEBUG : Logger::INFO
+      @@logger.datetime_format = "%Y-%m-%d %H:%M:%S"
+    else
+      @@logger = nil
+      STDOUT.sync = true
+    end
+  end
+
+  def _log(severity, str)
+    if @@logger
+      @@logger.add(severity, str, @application)
+    else
+      if severity == Logger::ERROR
+        STDERR.print Time.now.strftime("[%Y.%m.%d %H:%M:%S] #{@application} - "), str, "\n"
+      else
+        print Time.now.strftime("[%Y.%m.%d %H:%M:%S] #{@application} - "), str, "\n"
+      end
+    end
+  end
+
+  public
+  def debug(str)
+    _log(Logger::DEBUG, str)
+  end
+
+  def error(str)
+    _log(Logger::ERROR, str)
+  end
+
+  def info(str)
+    _log(Logger::INFO, str)
+  end
+
+  def http_new(uri, use_proxy = true)
+    if @@prowl_conf['ProxyHost'] and use_proxy
+      http = Net::HTTP::Proxy(@@prowl_conf['ProxyHost'],
+                              @@prowl_conf['ProxyPort'],
+                              @@prowl_conf['ProxyUser'],
+                              @@prowl_conf['ProxyPass']).new(uri.host, uri.port)
+    else
+      http = Net::HTTP.new(uri.host, uri.port)
+    end
+    return http
+  end
+
+  def prowl(params={})
+    u = URI::parse(PROWL_API_ADD)
+    http = http_new(u)
+    http.use_ssl = true
+    http.verify_mode = OpenSSL::SSL::VERIFY_NONE
+    request = Net::HTTP::Post.new(u.request_uri)
+    query = params.map do |key, val| "#{key}=#{URI::encode(val.to_s)}" end
+    debug "QueryString: " + query.join('&')
+    return http.request(request, query.join('&'))
+  end
+  
+  def put_prowl(string, text, prio)
+  	info "Prowling..."
+	debug "Prowling: %s %s" % [ string, text ]
+	res = prowl( :apikey => @@prowl_conf['APIKey'],
+	             :application=> @config['Application'],
+	             :event => string,
+	             :description => text,
+	             :priority => prio
+	            )
+	debug "Response: #{res}"
+	sleep 2
+  end
+  
+  def mixi_put_entry(doc)
+  	doc.elements.each('//entry'){|item|
+		puts item.elements['title'].text
+		puts item.elements['author/name'].text
+		puts item.elements['updated'].text
+		puts item.elements['link'].attributes['href']
+	}
+  end
+  
+  def checkMixiTracks(lastupdate, count, prio)
+  	mixi = Mixi.new(@config['User'], @config['Pass'], nil)
+  	string=""
+  	text=""
+  	num_updated = 0
+	result = mixi.tracks
+	
+	itemNewestDate = nil
+	
+	result.elements.each('//entry'){|item|
+   		itemUpdate = DateTime.strptime(item.elements['updated'].text, "%Y-%m-%dT%H:%M:%SZ") #2009-09-05T17:22:30Z
+		itemNewestDate = itemUpdate if itemNewestDate == nil
+
+		if 	lastupdate != nil && lastupdate < itemUpdate
+			info "track: #{ item.elements['author/name'].text} #{lastupdate.strftime("%A %B %d %X %Z %Y")}  #{itemUpdate.strftime("%A %B %d %X %Z %Y")}"		
+
+			string = "あしあと: " + itemUpdate.strftime("%A %B %d %X %Z %Y")			
+			text = item.elements['title'].text
+			num_updated = num_updated+1
+			
+			put_prowl(string, text, prio)
+		end
+		
+		break if (num_updated >= @config['TracksCount'])
+	}
+	
+	info "no new track" if num_updated == 0
+	lastupdate = itemNewestDate	if itemNewestDate != nil
+	return lastupdate
+  end
+  
+  def checkMixiUpdates(lastupdate, count, prio)
+  	mixi = Mixi.new(@config['User'], @config['Pass'], nil)
+  	string=""
+  	text=""
+  	num_updated = 0
+ 	result = mixi.updates
+	
+	itemNewest = nil
+	
+	result.elements.each('//entry'){|item|
+	
+		currentContent = item.elements['content'].text
+	
+		itemNewest = currentContent if itemNewest == nil
+
+		if 	lastupdate != nil && lastupdate != currentContent
+			info "update: #{ item.elements['author/name'].text}"		
+			
+			string = item.elements['category'].attributes['label'] + ": " + item.elements['author/name'].text
+			text = item.elements['title'].text
+			num_updated = num_updated+1
+			
+			put_prowl(string, text, prio)
+		end
+
+		break if (num_updated >= @config['UpdatesCount'])
+		break if lastupdate != nil && (lastupdate == currentContent)
+	}
+	
+	info "no new update" if num_updated == 0
+	lastupdate = itemNewest if itemNewest != nil
+	return lastupdate
+  end
+
+  def run
+    info "Start"
+    t1 = nil
+    t2 = nil
+    
+    if @config['Updates']
+      t1 = Thread.new do
+        last_update = nil
+
+        loop do
+          begin
+            last_update = checkMixiUpdates(last_update,
+                            @config['UpdatesCount'], @config['UpdatesPriority'])
+          rescue
+            error "UpdatesError: " + $!.to_s
+          end
+          debug "Updates sleep: #{@config['UpdatesInterval']} mins"
+          sleep @config['UpdatesInterval'] * 60
+        end
+      end
+    end
+    if @config['Tracks']
+      t2 = Thread.new do
+        last_update = nil
+
+        loop do
+          begin
+            last_update = checkMixiTracks(last_update,
+                            @config['TracksCount'], @config['TracksPriority'])
+            debug "Tracks last_update: #{last_update.strftime("%A %B %d %X %Z %Y")}"
+          rescue
+            error "TracksError: " + $!.to_s
+          end
+          debug "Tracks sleep: #{@config['UpdatesInterval']} mins"
+          sleep @config['TracksInterval'] * 60
+        end
+      end
+    end
+    
+   end
+  
+end
+
+# __MAIN__
+
+Dir.chdir(File.dirname(__FILE__))
+config = YAML.load_file('config.yml')
+
+accounts = Array.new
+config['Accounts'].each do |account|
+  ac = MixiProwl.new(config, account)
+  ac.run
+end
+
+loop do
+  sleep 6000
+end
+
+# __END__
+
