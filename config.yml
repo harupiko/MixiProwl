@@ -1,0 +1,23 @@
+LogDir: ./logs
+Debug: false
+
+Prowl:
+ APIKey: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+# ProxyHost: 
+# ProxyPort:
+# ProxyUser:
+# ProxyPass:
+
+Accounts:
+ -
+  User: XXXX@XXXXXXXXXXXXXXXX
+  Pass: XXXXXXXXXX
+  Updates: true
+  UpdatesCount: 10
+  UpdatesInterval: 10
+  UpdatesPriority: 1
+  Tracks: true
+  TracksCount: 10
+  TracksInterval: 5
+  TracksPriority: 1
+#  UseProxy: true
