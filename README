@@ -1,3 +1,16 @@
+= About =
+
+MixiProwl is a script that sends Mixi update notifications to your iPhone using Prowl.
+
+This source code is originally from TwiProwl and mixi.rb.
+
+TwiProwl by Takuo Kitame
+http://github.com/takuo/TwiProwl/
+
+mixi.rb by Mizuno Hiroki
+http://d.hatena.ne.jp/mzp/20070802/mixi
+
+
 = Instruction =
 
 1. install some ruby libraries
