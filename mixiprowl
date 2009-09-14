@@ -174,37 +174,54 @@ class MixiProwl
 	return lastupdate
   end
   
+  def tag2elements(tag)
+	#tag:mixi.jp,2007:updates-diary-XXXX-YYYYY
+  	splitted = tag.split("-")
+  	return {"category"=> splitted[1], "owner" => splitted[2], "id" => splitted[3]}
+  end
+  
   def checkMixiUpdates(lastupdate, count, prio)
   	mixi = Mixi.new(@config['User'], @config['Pass'], nil)
   	string=""
   	text=""
   	num_updated = 0
  	result = mixi.updates
-	
-	itemNewest = nil
+ 	
+ 	#parsing: nil = not yet, true = done, other = processing
+ 	latestElement = {"diary" => nil, "comment" => nil, "bbs" => nil, "album" => nil, "video" => nil}
 	
 	result.elements.each('//entry'){|item|
+		currentElement = tag2elements(item.elements['id'].text)
+		next if latestElement[currentElement['category']] == true
+		
+		info "read: #{ item.elements['category'].attributes['label']} #{ item.elements['id'].text} #{ item.elements['title'].text}"		
+		info "debug: #{currentElement['category']} #{currentElement['id']}"
 	
-		currentContent = item.elements['content'].text
-	
-		itemNewest = currentContent if itemNewest == nil
+		latestElement[currentElement['category']] = currentElement['id'] if latestElement[currentElement['category']] == nil
 
-		if 	lastupdate != nil && lastupdate != currentContent
+		if 	lastupdate[currentElement['category']] != nil && lastupdate[currentElement['category']] != currentElement['id']
 			info "update: #{ item.elements['author/name'].text}"		
 			
 			string = item.elements['category'].attributes['label'] + ": " + item.elements['author/name'].text
 			text = item.elements['title'].text
 			num_updated = num_updated+1
 			
-			put_prowl(string, text, prio)
-		end
+			if (num_updated < @config['UpdatesCount'])
+				put_prowl(string, text, prio)			
+			end
 
-		break if (num_updated >= @config['UpdatesCount'])
-		break if lastupdate != nil && (lastupdate == currentContent)
+		end
+		
+	
+		#update to latest id
+		if 	lastupdate[currentElement['category']] == nil || lastupdate[currentElement['category']] == currentElement['id']
+			lastupdate[currentElement['category']] = latestElement[currentElement['category']]
+			latestElement[currentElement['category']] = true #set this category done
+		end
 	}
 	
+	debut lastupdate
 	info "no new update" if num_updated == 0
-	lastupdate = itemNewest if itemNewest != nil
 	return lastupdate
   end
 
@@ -215,7 +232,7 @@ class MixiProwl
     
     if @config['Updates']
       t1 = Thread.new do
-        last_update = nil
+        last_update = {"diary" => nil, "comment" => nil, "bbs" => nil, "album" => nil, "video" => nil}
 
         loop do
           begin
