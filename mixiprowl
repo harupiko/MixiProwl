@@ -154,6 +154,7 @@ class MixiProwl
 	
 	result.elements.each('//entry'){|item|
    		itemUpdate = DateTime.strptime(item.elements['updated'].text, "%Y-%m-%dT%H:%M:%SZ") #2009-09-05T17:22:30Z
+   		itemUpdate = itemUpdate.new_offset(Rational(9,24))
 		itemNewestDate = itemUpdate if itemNewestDate == nil
 
 		if 	lastupdate != nil && lastupdate < itemUpdate
@@ -186,11 +187,12 @@ class MixiProwl
   	text=""
   	num_updated = 0
  	result = mixi.updates
- 	
+# 	print mixi.friends
  	#parsing: nil = not yet, true = done, other = processing
  	latestElement = {"diary" => nil, "comment" => nil, "bbs" => nil, "album" => nil, "video" => nil}
 	
 	result.elements.each('//entry'){|item|
+#		print item
 		currentElement = tag2elements(item.elements['id'].text)
 		next if latestElement[currentElement['category']] == true
 		
@@ -220,7 +222,7 @@ class MixiProwl
 		end
 	}
 	
-	debut lastupdate
+	info lastupdate
 	info "no new update" if num_updated == 0
 	return lastupdate
   end
